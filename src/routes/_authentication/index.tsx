@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Avatar,
@@ -12,6 +12,7 @@ import {
   Text,
   Input,
   VStack,
+  Spinner
 } from "@chakra-ui/react";
 import { CaretDown, CaretUp, Chat } from "@phosphor-icons/react";
 import { format } from "timeago.js";
@@ -27,51 +28,153 @@ import {
 import { useAuthToken } from "../../contexts/authentication";
 import { Loader } from "../../components/loader";
 import { MemePicture } from "../../components/meme-picture";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { jwtDecode } from "jwt-decode";
+
+
+// Component for comments section
+const CommentsSection = ({ token, memeId, openedCommentSection, user }) => {
+  const { data: commentsData, isLoading: isLoadingComments } = useQuery({
+    queryKey: ["comments", memeId],
+    queryFn: async () => {
+      const firstPage = await getMemeComments(token, memeId, 1);
+      const allComments = [...firstPage.results];
+
+      const remainingPages = Math.ceil(firstPage.total / firstPage.pageSize) - 1;
+      for (let i = 0; i < remainingPages; i++) {
+        const page = await getMemeComments(token, memeId, i + 2);
+        allComments.push(...page.results);
+      }
+
+      const commentsWithAuthors = await Promise.all(
+        allComments.map(async (comment) => {
+          const author = await getUserById(token, comment.authorId);
+          return { ...comment, author };
+        })
+      );
+
+      return commentsWithAuthors;
+    },
+    enabled: openedCommentSection === memeId,
+  });
+
+  return (
+    <>
+      {isLoadingComments ? (
+        <Spinner />
+      ) : (
+        <VStack align="stretch" spacing={4}>
+          {commentsData?.map((comment) => (
+            <Flex key={comment.id}>
+              <Avatar
+                borderWidth="1px"
+                borderColor="gray.300"
+                size="sm"
+                name={comment.author.username}
+                src={comment.author.pictureUrl}
+                mr={2}
+              />
+              <Box p={2} borderRadius={8} bg="gray.50" flexGrow={1}>
+                <Flex justifyContent="space-between" alignItems="center">
+                  <Flex>
+                    <Text data-testid={`meme-comment-author-${memeId}-${comment.id}`}>
+                      {comment.author.username}
+                    </Text>
+                  </Flex>
+                  <Text fontStyle="italic" color="gray.500" fontSize="small">
+                    {format(comment.createdAt)}
+                  </Text>
+                </Flex>
+                <Text color="gray.500" whiteSpace="pre-line" data-testid={`meme-comment-content-${memeId}-${comment.id}`}>
+                  {comment.content}
+                </Text>
+              </Box>
+            </Flex>
+          ))}
+        </VStack>
+      )}
+    </>
+  );
+};
 
 export const MemeFeedPage: React.FC = () => {
   const token = useAuthToken();
-  const { isLoading, data: memes } = useQuery({
+  const observerTarget = useRef(null);
+  const [isIntersecting, setIsIntersecting] = useState(false);
+
+  const {
+    data: memePages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: isLoadingMemes,
+  } = useInfiniteQuery({
     queryKey: ["memes"],
-    queryFn: async () => {
-      const memes: GetMemesResponse["results"] = [];
-      const firstPage = await getMemes(token, 1);
-      memes.push(...firstPage.results);
-      const remainingPages =
-        Math.ceil(firstPage.total / firstPage.pageSize) - 1;
-      for (let i = 0; i < remainingPages; i++) {
-        const page = await getMemes(token, i + 2);
-        memes.push(...page.results);
-      }
-      const memesWithAuthorAndComments = [];
-      for (let meme of memes) {
-        const author = await getUserById(token, meme.authorId);
-        const comments: GetMemeCommentsResponse["results"] = [];
-        const firstPage = await getMemeComments(token, meme.id, 1);
-        comments.push(...firstPage.results);
-        const remainingCommentPages =
-          Math.ceil(firstPage.total / firstPage.pageSize) - 1;
-        for (let i = 0; i < remainingCommentPages; i++) {
-          const page = await getMemeComments(token, meme.id, i + 2);
-          comments.push(...page.results);
-        }
-        const commentsWithAuthor: (GetMemeCommentsResponse["results"][0] & {
-          author: GetUserByIdResponse;
-        })[] = [];
-        for (let comment of comments) {
-          const author = await getUserById(token, comment.authorId);
-          commentsWithAuthor.push({ ...comment, author });
-        }
-        memesWithAuthorAndComments.push({
-          ...meme,
-          author,
-          comments: commentsWithAuthor,
-        });
-      }
-      return memesWithAuthorAndComments;
+    initialPageParam: 1,
+    queryFn: async ({ pageParam = 1 }) => {
+      const page = await getMemes(token, pageParam);
+
+      // Fetch author for each meme in parallel
+      const memesWithAuthor = await Promise.all(
+        page.results.map(async (meme) => {
+          const author = await getUserById(token, meme.authorId);
+          return { ...meme, author };
+        })
+      );
+
+      return {
+        ...page,
+        results: memesWithAuthor,
+        currentPage: pageParam
+      };
     },
+    getNextPageParam: (lastPage, allPages) => {
+      // Calculate from the fetched data if there are more pages
+      const currentPage = lastPage.currentPage;
+      const totalItems = lastPage.total;
+      const pageSize = lastPage.pageSize;
+      const totalPages = Math.ceil(totalItems / pageSize);
+
+      // Check if we've loaded all items
+      const loadedItemCount = allPages.reduce((count, page) => count + page.results.length, 0);
+
+      // Return the next page number or undefined if no more pages
+      if (currentPage < totalPages && loadedItemCount < totalItems) {
+        return currentPage + 1;
+      }else{
+        return undefined;
+      }
+    }
   });
+
+
+  // Intersection observer to trigger loading more memes
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        console.log("Intersection Observer triggered", entries[0].isIntersecting);
+        setIsIntersecting(entries[0].isIntersecting);
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          console.log("Fetching next page");
+          fetchNextPage();
+        }
+      },
+      {
+        threshold: 1
+      }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current);
+      }
+    };
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
+
   const { data: user } = useQuery({
     queryKey: ["user"],
     queryFn: async () => {
@@ -89,18 +192,24 @@ export const MemeFeedPage: React.FC = () => {
       await createMemeComment(token, data.memeId, data.content);
     },
   });
-  if (isLoading) {
+  if (isLoadingMemes && !memePages) {
     return <Loader data-testid="meme-feed-loader" />;
   }
+
+  // Flatten all pages into a single array of memes
+  const memes = memePages?.pages.flatMap(page => page.results) || [];
+
   return (
-    <Flex width="full" height="full" justifyContent="center" overflowY="auto">
+    <Flex width="full" height="full" justifyContent="center">
       <VStack
         p={4}
         width="full"
         maxWidth={800}
         divider={<StackDivider border="gray.200" />}
+        spacing={4}
       >
         {memes?.map((meme) => {
+
           return (
             <VStack key={meme.id} p={4} width="full" align="stretch">
               <Flex justifyContent="space-between" alignItems="center">
@@ -194,44 +303,37 @@ export const MemeFeedPage: React.FC = () => {
                     </Flex>
                   </form>
                 </Box>
-                <VStack align="stretch" spacing={4}>
-                  {meme.comments.map((comment) => (
-                    <Flex key={comment.id}>
-                      <Avatar
-                        borderWidth="1px"
-                        borderColor="gray.300"
-                        size="sm"
-                        name={comment.author.username}
-                        src={comment.author.pictureUrl}
-                        mr={2}
-                      />
-                      <Box p={2} borderRadius={8} bg="gray.50" flexGrow={1}>
-                        <Flex
-                          justifyContent="space-between"
-                          alignItems="center"
-                        >
-                          <Flex>
-                            <Text data-testid={`meme-comment-author-${meme.id}-${comment.id}`}>{comment.author.username}</Text>
-                          </Flex>
-                          <Text
-                            fontStyle="italic"
-                            color="gray.500"
-                            fontSize="small"
-                          >
-                            {format(comment.createdAt)}
-                          </Text>
-                        </Flex>
-                        <Text color="gray.500" whiteSpace="pre-line" data-testid={`meme-comment-content-${meme.id}-${comment.id}`}>
-                          {comment.content}
-                        </Text>
-                      </Box>
-                    </Flex>
-                  ))}
-                </VStack>
+                <CommentsSection
+                  token={token}
+                  memeId={meme.id}
+                  openedCommentSection={openedCommentSection}
+                  user={user}
+                />
               </Collapse>
             </VStack>
           );
         })}
+
+        {/* Loading indicator and observer target */}
+        <Flex direction="column" width="full" align="center" py={4}>
+          {isFetchingNextPage && <Spinner size="lg" mb={4} />}
+          <Box
+            ref={observerTarget}
+            width="full"
+            height="100px"  // Give it a fixed height to ensure visibility
+            my={4}
+            p={4}
+            textAlign="center"
+            border="1px dashed"
+            borderColor="gray.300"
+            borderRadius="md"
+            display={hasNextPage ? "block" : "none"}  // Only show if there are more pages
+          >
+            {hasNextPage && !isFetchingNextPage && (
+              <Text color="gray.500">Scroll for more</Text>
+            )}
+          </Box>
+        </Flex>
       </VStack>
     </Flex>
   );
