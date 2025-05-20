@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Avatar,
@@ -141,7 +141,7 @@ export const MemeFeedPage: React.FC = () => {
       // Return the next page number or undefined if no more pages
       if (currentPage < totalPages && loadedItemCount < totalItems) {
         return currentPage + 1;
-      }else{
+      } else {
         return undefined;
       }
     }
@@ -152,7 +152,6 @@ export const MemeFeedPage: React.FC = () => {
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        console.log("Intersection Observer triggered", entries[0].isIntersecting);
         setIsIntersecting(entries[0].isIntersecting);
         if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
           console.log("Fetching next page");
@@ -181,17 +180,62 @@ export const MemeFeedPage: React.FC = () => {
       return await getUserById(token, jwtDecode<{ id: string }>(token).id);
     },
   });
+
   const [openedCommentSection, setOpenedCommentSection] = useState<
     string | null
   >(null);
+
   const [commentContent, setCommentContent] = useState<{
     [key: string]: string;
   }>({});
+
+  const queryClient = useQueryClient();
+
   const { mutate } = useMutation({
     mutationFn: async (data: { memeId: string; content: string }) => {
       await createMemeComment(token, data.memeId, data.content);
     },
+    onMutate: async (newComment) => {
+      // Cancel any outgoing refetches for the target memeId
+      await queryClient.cancelQueries({ queryKey: ["comments", newComment.memeId] });
+
+      // Snapshot previous comments
+      const previousComments = queryClient.getQueryData(["comments", newComment.memeId]);
+
+      // Add optimistic comment
+      queryClient.setQueryData(["comments", newComment.memeId], (old: any) => {
+        if (!old) return [];
+        return [
+          ...old,
+          {
+            id: `temp-${Date.now()}`, // Temporary ID
+            content: newComment.content,
+            createdAt: new Date().toISOString(),
+            author: user, // Use local user info
+          },
+        ];
+      });
+
+      // Clear the input
+      setCommentContent((prev) => ({
+        ...prev,
+        [newComment.memeId]: '',
+      }));
+
+      return { previousComments };
+    },
+    onError: (_err, newComment, context) => {
+      // Roll back to previous state
+      if (context?.previousComments) {
+        queryClient.setQueryData(["comments", newComment.memeId], context.previousComments);
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      // Refetch to get the actual server-side comment
+      queryClient.invalidateQueries({ queryKey: ["comments", variables.memeId] });
+    },
   });
+
   if (isLoadingMemes && !memePages) {
     return <Loader data-testid="meme-feed-loader" />;
   }
@@ -298,7 +342,7 @@ export const MemeFeedPage: React.FC = () => {
                             [meme.id]: event.target.value,
                           });
                         }}
-                        value={commentContent[meme.id]}
+                        value={commentContent[meme.id] || ''}
                       />
                     </Flex>
                   </form>
