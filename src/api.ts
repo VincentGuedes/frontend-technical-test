@@ -147,3 +147,46 @@ export async function createMemeComment(token: string, memeId: string, content: 
     body: JSON.stringify({ content }),
   }).then(res => checkStatus(res).json());
 }
+
+/**
+ * 
+ * @param token 
+ * @param picture 
+ * @param description 
+ * @param texts 
+ */
+export async function createMeme(
+  token: string,
+  picture: File,
+  description: string,
+  texts: { content: string; x: number; y: number }[]
+): Promise<void> {
+  const formData = new FormData();
+
+  formData.append("Picture", picture);
+  formData.append("Description", description);
+
+  texts.forEach((text, index) => {
+    formData.append(`Texts[${index}][Content]`, text.content);
+    formData.append(`Texts[${index}][X]`, text.x.toString());
+    formData.append(`Texts[${index}][Y]`, text.y.toString());
+  });
+
+  const response = await fetch(`${BASE_URL}/memes`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({
+      message: "An error occurred",
+    }));
+    
+    throw new Error(`Failed to create meme: ${errorData.message || response.statusText}`);
+  }
+
+  return await response.json();
+}
