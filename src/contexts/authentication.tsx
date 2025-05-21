@@ -6,6 +6,7 @@ import {
   useContext,
   useMemo,
   useState,
+  useEffect
 } from "react";
 
 export type AuthenticationState =
@@ -35,18 +36,51 @@ export const AuthenticationProvider: React.FC<PropsWithChildren> = ({
     isAuthenticated: false,
   });
 
+  const isTokenExpired = useCallback((token: string): boolean => {
+    try {
+      const decoded = jwtDecode<{ exp?: number }>(token);
+      // Check if expiration time exists and if it's in the past
+      if (decoded.exp === undefined) return false; // If no expiration, consider it valid
+      return decoded.exp * 1000 < Date.now();
+    } catch (error) {
+      // If there's an error decoding, consider it expired
+      return true;
+    }
+  }, []);
+
+  const validateAndSetAuthState = useCallback((token: string) => {
+    if (isTokenExpired(token)) {
+      localStorage.removeItem("authToken");
+      setState({ isAuthenticated: false });
+      return false;
+    }
+    
+    setState({
+      isAuthenticated: true,
+      token,
+      userId: jwtDecode<{ id: string }>(token).id,
+    });
+    return true;
+  }, [isTokenExpired]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("authToken");
+    if (token) {
+      validateAndSetAuthState(token);
+    }
+  }, [validateAndSetAuthState]);
+
+
   const authenticate = useCallback(
     (token: string) => {
-      setState({
-        isAuthenticated: true,
-        token,
-        userId: jwtDecode<{ id: string }>(token).id,
-      });
+      localStorage.setItem("authToken", token);
+      validateAndSetAuthState(token)
     },
-    [setState],
+    [validateAndSetAuthState]
   );
 
   const signout = useCallback(() => {
+    localStorage.removeItem("authToken");
     setState({ isAuthenticated: false });
   }, [setState]);
 
