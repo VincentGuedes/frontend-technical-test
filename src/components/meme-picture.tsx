@@ -9,6 +9,7 @@ export type MemePictureProps = {
     y: number;
   }[];
   dataTestId?: string;
+  onCaptionMove?: (index: number, x: number, y: number) => void;
 };
 
 const REF_WIDTH = 800;
@@ -18,6 +19,7 @@ const REF_FONT_SIZE = 36;
 export const MemePicture: React.FC<MemePictureProps> = ({
   pictureUrl,
   texts: rawTexts,
+  onCaptionMove,
   dataTestId = '',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -56,22 +58,52 @@ export const MemePicture: React.FC<MemePictureProps> = ({
       data-testid={dataTestId}
     >
       {texts.map((text, index) => (
-        <Text
+        <Box
           key={index}
           position="absolute"
           left={text.x}
           top={text.y}
-          fontSize={fontSize}
-          color="white"
-          fontFamily="Impact"
-          fontWeight="bold"
-          userSelect="none"
-          textTransform="uppercase"
-          style={{ WebkitTextStroke: "1px black" }}
-          data-testid={`${dataTestId}-text-${index}`}
+          cursor="move"
+          onMouseDown={(e) => {
+            const startX = e.clientX;
+            const startY = e.clientY;
+
+            const handleMouseMove = (moveEvent: MouseEvent) => {
+              const dx = moveEvent.clientX - startX;
+              const dy = moveEvent.clientY - startY;
+
+              const newX = text.x + dx;
+              const newY = text.y + dy;
+
+              if (typeof onCaptionMove === "function" && boxWidth) {
+                const scaledX = (newX / boxWidth) * REF_WIDTH;
+                const scaledY = (newY / boxWidth) * REF_WIDTH;
+                onCaptionMove(index, scaledX, scaledY);
+              }
+            };
+
+            const handleMouseUp = () => {
+              document.removeEventListener("mousemove", handleMouseMove);
+              document.removeEventListener("mouseup", handleMouseUp);
+            };
+
+            document.addEventListener("mousemove", handleMouseMove);
+            document.addEventListener("mouseup", handleMouseUp);
+          }}
         >
-          {text.content}
-        </Text>
+          <Text
+            fontSize={fontSize}
+            color="white"
+            fontFamily="Impact"
+            fontWeight="bold"
+            userSelect="none"
+            textTransform="uppercase"
+            style={{ WebkitTextStroke: "1px black" }}
+            data-testid={`${dataTestId}-text-${index}`}
+          >
+            {text.content}
+          </Text>
+        </Box>
       ))}
     </Box>
   );

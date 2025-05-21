@@ -60,6 +60,16 @@ function CreateMemePage() {
     setTexts(newTexts);
   };
 
+  const handleCaptionMove = (index: number, x: number, y: number) => {
+    const newTexts = [...texts];
+    newTexts[index] = {
+      ...newTexts[index],
+      x,
+      y,
+    };
+    setTexts(newTexts);
+  };
+
   const memePicture = useMemo(() => {
     if (!picture) {
       return undefined;
@@ -68,6 +78,7 @@ function CreateMemePage() {
     return {
       pictureUrl: picture.url,
       texts,
+      onCaptionMove: handleCaptionMove,
     };
   }, [picture, texts]);
 
