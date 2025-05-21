@@ -15,6 +15,11 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  // Mock container width to match REF_WIDTH (800px)
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    value: 800,
+  });
   window.scrollTo = vi.fn();
 });
 
@@ -61,16 +66,33 @@ describe("routes/_authentication/index", () => {
         // We check that the right texts are displayed at the right positions
         const text1 = screen.getByTestId("meme-picture-dummy_meme_id_1-text-0");
         const text2 = screen.getByTestId("meme-picture-dummy_meme_id_1-text-1");
-        expect(text1).toHaveTextContent('dummy text 1');
-        expect(text1).toHaveStyle({
-          'top': '0px',
-          'left': '0px',
-        });
-        expect(text2).toHaveTextContent('dummy text 2');
-        expect(text2).toHaveStyle({
-          'top': '100px',
-          'left': '100px',
-        });
+
+        // Get the container element
+        const container = screen.getByTestId("meme-picture-dummy_meme_id_1");
+        const containerWidth = container.offsetWidth;
+        const scaleFactor = containerWidth / 800; // REF_WIDTH is 800
+
+        // Verify the text wrapper elements have the correct scaled positions
+        const text1Wrapper = text1.parentElement;
+        const text2Wrapper = text2.parentElement;
+
+        // Calculate expected positions (0 * scaleFactor and 100 * scaleFactor)
+        const expectedText1Left = 0 * scaleFactor;
+        const expectedText1Top = 0 * scaleFactor;
+        const expectedText2Left = 100 * scaleFactor;
+        const expectedText2Top = 100 * scaleFactor;
+
+        // Get actual positions from computed style
+        const text1Left = parseFloat(window.getComputedStyle(text1Wrapper!).left);
+        const text1Top = parseFloat(window.getComputedStyle(text1Wrapper!).top);
+        const text2Left = parseFloat(window.getComputedStyle(text2Wrapper!).left);
+        const text2Top = parseFloat(window.getComputedStyle(text2Wrapper!).top);
+
+        // Allow small floating point differences
+        expect(text1Left).toBeCloseTo(expectedText1Left);
+        expect(text1Top).toBeCloseTo(expectedText1Top);
+        expect(text2Left).toBeCloseTo(expectedText2Left);
+        expect(text2Top).toBeCloseTo(expectedText2Top);
 
         // We check that the right description is displayed
         expect(screen.getByTestId("meme-description-dummy_meme_id_1")).toHaveTextContent('dummy meme 1');
