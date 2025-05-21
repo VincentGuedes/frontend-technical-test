@@ -33,7 +33,7 @@ const memes = [
   },
 ]
 
-const comments = [
+export const comments = [
   {
     id: "dummy_comment_id_1",
     memeId: "dummy_meme_id_1",
@@ -99,6 +99,7 @@ export const handlers = [
   http.get<{ id: string }>(
     "https://fetestapi.int.mozzaik365.net/api/memes/:id/comments",
     async ({ params }) => {
+
       const memeComments = comments.filter(
         (comment) => comment.memeId === params.id,
       );
@@ -109,4 +110,19 @@ export const handlers = [
       });
     },
   ),
+  http.post("https://fetestapi.int.mozzaik365.net/api/memes/:id/comments", async ({ params, request }) => {
+    const body = await request.json();
+    const memeId = params.id;
+
+    const newComment = {
+      id: `comment-${Math.random().toString(36).slice(2)}`,
+      content: body.content,
+      memeId,
+      authorId: "dummy_user_id_1",
+      createdAt: new Date().toISOString(),
+    };
+
+    comments.push(newComment);
+    return HttpResponse.json(newComment);
+  }),
 ];

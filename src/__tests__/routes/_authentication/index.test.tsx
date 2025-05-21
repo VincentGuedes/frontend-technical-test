@@ -14,6 +14,10 @@ beforeAll(() => {
   };
 });
 
+beforeEach(() => {
+  window.scrollTo = vi.fn();
+});
+
 describe("routes/_authentication/index", () => {
   describe("MemeFeedPage", () => {
     function renderMemeFeedPage() {
@@ -88,5 +92,27 @@ describe("routes/_authentication/index", () => {
         expect(screen.getByTestId("meme-comment-author-dummy_meme_id_1-dummy_comment_id_3")).toHaveTextContent('dummy_user_3');
       });
     });
+
+    it("should display the new comment after user has added it", async () => {
+      renderMemeFeedPage();
+
+      // Wait for and click the toggle to open comments
+      const toggle = await screen.findByTestId("meme-comments-section-dummy_meme_id_1");
+      fireEvent.click(toggle);
+
+      // Wait for the input field to appear
+      const input = await screen.findByTestId("add-comment-input-field-dummy_meme_id_1");
+
+      // Type and submit comment
+      fireEvent.change(input, { target: { value: "my new comment" } });
+      fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+      fireEvent.submit(input.closest("form"));
+
+      await waitFor(() => {
+        expect(screen.getByText("my new comment")).toBeInTheDocument();
+      });
+
+    });
+
   });
 });

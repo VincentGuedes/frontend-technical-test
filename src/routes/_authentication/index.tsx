@@ -196,6 +196,10 @@ export const MemeFeedPage: React.FC = () => {
       await createMemeComment(token, data.memeId, data.content);
     },
     onMutate: async (newComment) => {
+      if (!user) {
+        console.warn("Skipping optimistic update: user is undefined");
+        return;
+      }
       // Cancel any outgoing refetches for the target memeId
       await queryClient.cancelQueries({ queryKey: ["comments", newComment.memeId] });
 
@@ -335,6 +339,7 @@ export const MemeFeedPage: React.FC = () => {
                         mr={2}
                       />
                       <Input
+                        data-testid={`add-comment-input-field-${meme.id}`}
                         placeholder="Type your comment here..."
                         onChange={(event) => {
                           setCommentContent({
